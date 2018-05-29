@@ -17,6 +17,7 @@ from core.ptc_helpers import *
 
 def ptc_analyze_all_channels(df, channels, amb, tc_channel_names, upper_threshold, lower_threshold, tolerance, rate_adjustment, date_format, file_extension, test_name):
 
+    report_summary = []
     print('inside ptc_analyze_all_channels...')
     writer = create_wb(test_name) ## create workbook
     
@@ -35,6 +36,10 @@ def ptc_analyze_all_channels(df, channels, amb, tc_channel_names, upper_threshol
 
     write_multiple_dfs(writer, [errors_ambient, df_summary_amb, result_each_cycle_amb], 'Amb '+str(amb), 3, content_instruction_ambient)
 
+    report_summary_amb = df_summary_amb[['cold_soak_duration_minute', 'cold_soak_mean_temp_c', 'hot_soak_duration_minute', 'hot_soak_mean_temp_c', 'down_RAMP_rate_c/minute', 'up_RAMP_rate_c/minute']].iloc[:1]
+    report_summary_amb.index = ['Amb']
+    report_summary.append(report_summary_amb)
+
     ### all other channels
     if rate_adjustment:  ## apply rate adjustment if supplied
         temp_adjustment = rate_adjustment*(float(upper_threshold) - float(lower_threshold))/100
@@ -50,6 +55,14 @@ def ptc_analyze_all_channels(df, channels, amb, tc_channel_names, upper_threshol
             df_channel, errors_channel = drop_errors_channel(df, channel)
             result_each_cycle, df_summary_tc, n_reach_summary = pd.DataFrame(), pd.DataFrame(), pd.DataFrame() ## ensure reset
             result_each_cycle, df_summary_tc, content_instruction = single_channel_analysis(df_channel, channel, amb, ambient, upper_threshold, lower_threshold, date_format, cycle_amount)
+             
+            report_summary_tc = df_summary_tc[['cold_soak_duration_minute', 'cold_soak_mean_temp_c', 'hot_soak_duration_minute', 'hot_soak_mean_temp_c', 'down_RAMP_rate_c/minute', 'up_RAMP_rate_c/minute']].iloc[:1]
+            
+            if tc_channel_names[channel]: report_summary_tc.index = [tc_channel_names[channel]]
+            else: report_summary_tc.index = [channel]
+            
+            report_summary.append(report_summary_tc)
+
             if tc_channel_names[channel]:
                 if file_extension == 'csv':
                     tc_name = tc_channel_names[channel] + ' (' + channel.split(' ')[1] + ')'
@@ -59,6 +72,10 @@ def ptc_analyze_all_channels(df, channels, amb, tc_channel_names, upper_threshol
                 tc_name = channel
             write_multiple_dfs(writer, [errors_channel, df_summary_tc, result_each_cycle], tc_name, 3, content_instruction)
     
+    result = pd.concat(report_summary)
+    result.to_excel(writer, sheet_name='Report Summary Table', startrow=2, startcol=0)
+    worksheet = writer.sheets['Report Summary Table']
+    
     ### format output excel file
     format_excel_file(writer)
     writer.save()
@@ -67,8 +84,25 @@ def format_excel_file(writer):
     workbook = writer.book
     table_format = workbook.add_format({'align':'center'})
     for sheet_name in writer.sheets:
-        writer.sheets[sheet_name].set_column('A:Z', 27, table_format)
+        if sheet_name != 'Report Summary Table':
+            writer.sheets[sheet_name].set_column('A:Z', 27, table_format)
+        else: 
+            merge_format = workbook.add_format({
+                'bold': 1,
+                'border': 1,
+                'align': 'center',
+                'valign': 'vcenter',
+                'fg_color': 'yellow'})
+        
+            cell_format = workbook.add_format()
+            cell_format.set_bold()
+            cell_format.set_align('center')
+            cell_format.set_align('vcenter')
 
+            worksheet = writer.sheets['Report Summary Table']
+            worksheet.merge_range('A2:G2', 'Thermocouple Data Summary Table - Mean Values', merge_format)
+            worksheet.write(2, 0, "Type", cell_format)
+            writer.sheets[sheet_name].set_column('A:G', 27, table_format)
 
 def ambient_analysis(df, channels, amb, upper_threshold, lower_threshold, date_format):
     ''' Analysis for ambient channel '''
@@ -108,9 +142,9 @@ def ambient_analysis(df, channels, amb, upper_threshold, lower_threshold, date_f
     cycle_amount = len(result_each_cycle)
     
     if n_reach_ls_period == []: 
-        content_instruction = ['Version 4.0\n\nIn this PTC test file, there are '+ str(cycle_amount) +' cycles.\n\nThe First Table: List out the test data that have reading error.', 'The Second Table: Summary table for the ambient.', 'The Third Table: List out the calculation result for each cycle of ambient.']
+        content_instruction = ['Version 6.0\n\nIn this PTC test file, there are '+ str(cycle_amount) +' cycles.\n\nThe First Table: List out the test data that have reading error.', 'The Second Table: Summary table for the ambient.', 'The Third Table: List out the calculation result for each cycle of ambient.']
     else: 
-        content_instruction = ['Version 4.0\n\nIn this PTC test file, there are '+ str(cycle_amount) +' cycles.\n\nThe First Table: List out the test data that have reading error.', 'The Second Table: Summary table for the ambient.\n\nNot every cycle reached the threshold!', 'The Third Table: List out the calculation result for each cycle of ambient.']
+        content_instruction = ['Version 6.0\n\nIn this PTC test file, there are '+ str(cycle_amount) +' cycles.\n\nThe First Table: List out the test data that have reading error.', 'The Second Table: Summary table for the ambient.\n\nNot every cycle reached the threshold!', 'The Third Table: List out the calculation result for each cycle of ambient.']
 
     return result_each_cycle, df_summary, ambient, content_instruction, cycle_amount
 

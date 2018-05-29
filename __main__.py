@@ -5,6 +5,7 @@ import sys
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
+import matplotlib.pyplot as plt
 
 from core.tshock_analysis import *
 from core.ptc_analysis import *
@@ -24,8 +25,8 @@ RT_ADJ_ROW = 6
 LOAD_TC_ROW = 7
 TC_LABELS_ROW = 8
 
-class ProfileUI(QWidget):
 
+class ProfileUI(QWidget):
     def __init__(self):
         super().__init__()
         self.data_file = ''
@@ -43,16 +44,16 @@ class ProfileUI(QWidget):
         self.grid.setSpacing(10)  # spacing between widgets
 
         ## radio buttons (PTC or Thermal Shock)
-        self.ptc_radio = QRadioButton('PTC', self)
-        self.tshock_radio = QRadioButton('Thermal Shock', self)
+        self.ptc_radio = QRadioButton('Test Station', self)
+        self.tshock_radio = QRadioButton('34972A Data Logger', self)
         self.grid.addWidget(self.ptc_radio, TEST_TYPE_ROW, 0)
         self.grid.addWidget(self.tshock_radio, TEST_TYPE_ROW, 1)
 
-        ## datapath
-        self.data_file_textfield = QLineEdit('(No File Selected)', self)
-        self.data_file_button = FileButton('Select Data File', self.data_file_textfield, self)
-        self.grid.addWidget(self.data_file_button, DATAPATH_ROW, 0)
-        self.grid.addWidget(self.data_file_textfield, DATAPATH_ROW, 1, 1, TEXTFIELD_WIDTH)
+        ## data folder
+        self.data_folder_textfield = QLineEdit('(No Folder Selected)', self)
+        self.data_folder_button = FolderButton('Select Data Folder', self.data_folder_textfield, self)
+        self.grid.addWidget(self.data_folder_button, DATAPATH_ROW, 0)
+        self.grid.addWidget(self.data_folder_textfield, DATAPATH_ROW, 1, 1, TEXTFIELD_WIDTH)
 
         ## test name
         self.test_name_label = QLabel('Test Name:', self)
@@ -102,8 +103,8 @@ class ProfileUI(QWidget):
 
     def populate_tc_field_group(self, row):
         ''' Populate GUI with user input TC analysis widgets '''
-        datapath = self.data_file_textfield.text()
-        if datapath and datapath != '(No File Selected)': ## if datapath provided
+        datapath = self.data_folder_textfield.text()
+        if datapath and datapath != '(No Folder Selected)': ## if datapath provided
             try:
                 self.retrieve_thermocouple_channels()
 
@@ -130,10 +131,13 @@ class ProfileUI(QWidget):
             print('\n', 'Error: path to data file must be provided to load TCs')
 
     def retrieve_thermocouple_channels(self):
-        if ( self.data_file_textfield.text() ):
-            datapath = self.data_file_textfield.text()
-            regex_temp, date_format, sep, file_extension = define_test_parameters(datapath)
-            df_temp = pd.read_csv(datapath, nrows=5, sep=sep)  ## read first 5 rows of datafile
+        if ( self.data_folder_textfield.text() ):
+            datapath = self.data_folder_textfield.text()
+            head_ls_file = os.listdir(datapath)
+            filepath = head_ls_file[0]
+            regex_temp, date_format, sep, file_extension = define_test_parameters(filepath)
+            head_ls_file = os.listdir(datapath)
+            df_temp = pd.read_csv(datapath + '\\' + head_ls_file[0], nrows=5, sep=sep)  ## read first 5 rows of datafile
             self.channels = get_channels(df_temp, regex_temp)
         else:
             print('You must define a valid datapath first')
@@ -153,24 +157,24 @@ class ProfileUI(QWidget):
         self.grid.addWidget(field, use_row, column+1)
         self.tc_names.append(field)
 
-class FileButton(QPushButton):
 
+class FolderButton(QPushButton):
     def __init__(self, text, text_box, ui):
         super().__init__()
         self.ui = ui
         self.setText(text)
         self.text_box = text_box
-        self.name = ''
-        self.clicked.connect(self.select_file)
+        self.name = r''
+        self.clicked.connect(self.set_folder)
+        self.setToolTip('Select the directory containing the raw data of the test you would like to analyze')
 
-    def select_file(self):
-        self.name = str(QFileDialog.getOpenFileName(self, "Select temperature data file")[0])
+    def set_folder(self):
+        self.name = str(QFileDialog.getExistingDirectory(self, "Select directory for data analysis"))
         self.text_box.setText(self.name)
-        self.ui.data_file = self.name
+        self.ui.data_folder = self.name
      
 
 class AnalyzeButton(QPushButton):
-
     def __init__(self, name, ui):
         super().__init__()
         self.init_button(name)
@@ -185,7 +189,7 @@ class AnalyzeButton(QPushButton):
         ## Get user inputs
         test_type = get_test_type(self.ui.ptc_radio, self.ui.tshock_radio)
         test_name = self.ui.test_name_textfield.text()
-        datapath = self.ui.data_file_textfield.text()
+        datapath = self.ui.data_folder_textfield.text()
         tolerance = self.ui.temp_tol_textfield.text()
         upper_threshold = self.ui.upper_temp_textfield.text()
         lower_threshold = self.ui.lower_temp_textfield.text()
@@ -202,10 +206,12 @@ class AnalyzeButton(QPushButton):
             tc_channel_names[channel] = self.ui.tc_names[i].text()
 
         ## if all required user inputs exist
-        if test_name and test_type and datapath and upper_threshold and lower_threshold and tolerance and len(ambient_channel_number)==3:
+        if test_name and test_type and datapath and upper_threshold and lower_threshold and tolerance:
             upper_threshold, lower_threshold = int(upper_threshold), int(lower_threshold)
             tolerance = int(tolerance)
-            regex_temp, date_format, sep, file_extension= define_test_parameters(datapath)
+            head_ls_file = os.listdir(datapath)
+            filepath = head_ls_file[0]
+            regex_temp, date_format, sep, file_extension= define_test_parameters(filepath)
 
             ### Print test parameters
             print('Test Type:', test_type)
@@ -215,28 +221,33 @@ class AnalyzeButton(QPushButton):
             print('Channels:', tc_channel_names)
             print('Amb Channel:', ambient_channel_number)
 
-            ### Do plot
-            df, channels, amb = import_data_with_date_index(datapath, ambient_channel_number, regex_temp, date_format, sep, file_extension)  ## df time indexed
-            
+            ls_df_all = build_dataframe(datapath) 
+            df = pd.concat(ls_df_all)
 
+            ## Do plot
+            df_plot, channels, amb = import_data_with_date_index(datapath, ambient_channel_number, regex_temp, date_format, sep, file_extension)  ## df time indexed
             try:
-                if rate_adjustment:
-                    plot_profile_ra(upper_threshold, lower_threshold, tolerance, rate_adjustment, test_name, df, channels, tc_channel_names)  ## plot with ploty
-                else: plot_profile(upper_threshold, lower_threshold, tolerance, test_name, df, channels, tc_channel_names)  ## plot with ploty
+                plot_profile_matplotlib(upper_threshold, lower_threshold, tolerance, rate_adjustment, 
+                                        title, df_plot, channels, tc_channel_names, regex_temp)
+            except Exception as e:
+                print('There was an error with the Plotting')
+                print(e)
 
-            except:
-                print('There was an error with the Plotly API')
-            ### Do analysis
-            df, channels, amb = import_data_without_date_index(datapath, ambient_channel_number, regex_temp, sep) ## df raw for analysis
+            ## Do analysis
+            channels, amb = import_data_without_date_index(df, ambient_channel_number, regex_temp, sep) ## df raw for analysis
             if test_type == 'Thermal Shock': 
-                tshock_analyze_all_channels(df, channels, amb, tc_channel_names, upper_threshold, lower_threshold, tolerance, rate_adjustment, date_format, file_extension, test_name)
+                tshock_analyze_all_channels(df, channels, amb, tc_channel_names, 
+                                            upper_threshold, lower_threshold, tolerance, rate_adjustment, 
+                                            date_format, file_extension, test_name)
             elif test_type == 'PTC':
-                ptc_analyze_all_channels(df, channels, amb, tc_channel_names, upper_threshold, lower_threshold, tolerance, rate_adjustment, date_format, file_extension, test_name)
+                ptc_analyze_all_channels(df, channels, amb, tc_channel_names, 
+                                         upper_threshold, lower_threshold, tolerance, rate_adjustment, 
+                                         date_format, file_extension, test_name)
+            plt.show()
             print('\nANALYSIS COMPLETE.')
         else:
             print('\n', 'All user inputs must be filled before analysis can be conducted. Please fill in the required fields.')
         
-
 
 ### Helpers
 def get_test_type(ptc_widget, tshock_widget):
@@ -247,24 +258,6 @@ def get_test_type(ptc_widget, tshock_widget):
     else:
         test_type = None
     return test_type
-
-def define_test_parameters(datapath):
-    file_extension = datapath.split('.')[-1]
-    if file_extension == 'csv':
-        regex_temp = '^Chan\s[0-9][0-9][0-9]'
-        date_format = '%m/%d/%Y %H:%M:%S:%f'
-        sep = ','
-    elif file_extension == 'txt':
-        regex_temp = 'TC[1-4]$'
-        date_format = '%m/%d/%Y %I:%M:%S %p'
-        sep = '\t'
-    else:
-        raise
-    return regex_temp, date_format, sep, file_extension
-
-def print_errors():
-    pass
-
 
 
 if __name__ == '__main__':

@@ -46,7 +46,6 @@ def df_instruction(worksheet, row, text):
 
 ########### Soak and Ramp Analysis
 def soak_analysis(channel_name, amb, ambient, df_chan_Ambient, ls_index_cold, ls_index_hot, start_index_list):
-    
     df_soak_low = ambient.loc[ls_index_cold].reset_index(drop=True)
     df_soak_high = ambient.loc[ls_index_hot].reset_index(drop=True)
 
@@ -126,7 +125,8 @@ def calculate_ramp_stats(channel_name, ambient, date_format):
         a2 = ambient['Time'][m]
         if check.iloc[m][1] == True or check.iloc[m+1][1] == True: 
             time.append(np.nan)
-        else: time.append((datetime.strptime(a1, date_format) - datetime.strptime(a2, date_format)).total_seconds())
+        else: 
+            time.append((datetime.strptime(a1, date_format) - datetime.strptime(a2, date_format)).total_seconds())
     time.append(np.nan)
     ambient.insert(0,'duration',time)
     ambient['duration_minutes'] = ambient['duration']/60 ## translate duration to minutes
@@ -140,6 +140,7 @@ def calculate_ramp_stats(channel_name, ambient, date_format):
     ambient['ramp_rate'] = ambient['ramp_temp']*60/ambient['duration']
 
     return ambient
+
 
 ########### Determine Starting Point Case (e.g. - up-ramp, down-ramp, high-soak, low-soak)
 def find_starting_point_case(amb, ambient, upper_threshold, lower_threshold):
@@ -229,23 +230,31 @@ def create_analysis_summary(channel, amb, df_soak_high, df_soak_low, df_transfor
         soak_columns_wo_cyc = [5,8,9,10]
         transform_columns_amb = [5,6,7]
         ### if ambient, concat and then add cycle# index
-        result_each_cycle = pd.concat([df_soak_low.iloc[:,soak_columns_wo_cyc], df_soak_high.iloc[:,soak_columns_wo_cyc], df_transform_down.iloc[:,transform_columns_amb], df_transform_up.iloc[:,transform_columns_amb]], axis=1)
+        result_each_cycle = pd.concat([ df_soak_low.iloc[:,soak_columns_wo_cyc], 
+                                        df_soak_high.iloc[:,soak_columns_wo_cyc], 
+                                        df_transform_down.iloc[:,transform_columns_amb], 
+                                        df_transform_up.iloc[:,transform_columns_amb] ], 
+                                      axis=1)
         result_each_cycle.insert(0, 'cycle#', pd.Series(list(range(1,result_each_cycle.shape[0]+1))))
 
     else:
-        soak_columns_with_cyc = [1,6,9,10,11] ## 'cycle#', 'duration_minutes', 'mean_temp', 'max_temp', 'min_temp'
+        soak_columns_with_cyc = [1,6,9,10,11]  ## 'cycle#', 'duration_minutes', 'mean_temp', 'max_temp', 'min_temp'
         soak_columns_wo_cyc = [6,9,10,11]  ## 'duration_minutes', 'mean_temp', 'max_temp', 'min_temp'
         transform_columns_non_amb = [6,7,8]
-        result_each_cycle = pd.concat([df_soak_low.iloc[:,soak_columns_with_cyc], df_soak_high.iloc[:,soak_columns_wo_cyc], df_transform_down.iloc[:,transform_columns_non_amb], df_transform_up.iloc[:,transform_columns_non_amb]], axis=1)
+        result_each_cycle = pd.concat([ df_soak_low.iloc[:,soak_columns_with_cyc], 
+                                        df_soak_high.iloc[:,soak_columns_wo_cyc], 
+                                        df_transform_down.iloc[:,transform_columns_non_amb], 
+                                        df_transform_up.iloc[:,transform_columns_non_amb] ], 
+                                      axis=1)
 
     cycles_label = ['cycle#', 
-                     'cold_soak_duration_minute', 'cold_soak_mean_temp_c', 'cold_soak_max_temp_c', 'cold_soak_min_temp_c', 
-                     'hot_soak_duration_minute', 'hot_soak_mean_temp_c', 'hot_soak_max_temp_c', 'hot_soak_min_temp_c', 
-                     'down_recovery_time_minute', 'down_RAMP_temp_c', 'down_RAMP_rate_c/minute', 
-                     'up_recovery_time_minute', 'up_RAMP_temp_c', 'up_RAMP_rate_c/minute']
+                    'cold_soak_duration_minute', 'cold_soak_mean_temp_c', 'down_RAMP_temp_change_rate_min_temp_c', 'cold_soak_min_temp_c', 
+                    'hot_soak_duration_minute', 'hot_soak_mean_temp_c', 'hot_soak_max_temp_c', 'up_RAMP_temp_change_rate_max_temp_c', 
+                    'down_recovery_time_minute', 'down_RAMP_temp_c', 'down_RAMP_rate_c/minute', 
+                    'up_recovery_time_minute', 'up_RAMP_temp_c', 'up_RAMP_rate_c/minute']
 
     result_each_cycle.columns = cycles_label
-    ls_mean, ls_std, ls_min, ls_min_cid, ls_max, ls_max_cid= [], [], [], [], [], []
+    ls_mean, ls_std, ls_min, ls_min_cid, ls_max, ls_max_cid = [], [], [], [], [], []
 
     for i in range(1, result_each_cycle.shape[1]):
         ls_mean.append(result_each_cycle.ix[:,i].mean())
@@ -257,12 +266,16 @@ def create_analysis_summary(channel, amb, df_soak_high, df_soak_low, df_transfor
 
     summary_label = cycles_label[1:]
 
-    df_summary = pd.DataFrame.from_items([('mean', ls_mean), ('min', ls_min),('min_cycle#', ls_min_cid), ('max', ls_max), ('max_cycle#', ls_max_cid),('std_dev', ls_std)],orient='index', columns=summary_label)
+    df_summary = pd.DataFrame.from_items([('mean', ls_mean), 
+                                          ('min', ls_min),('min_cycle#', ls_min_cid), 
+                                          ('max', ls_max), ('max_cycle#', ls_max_cid),
+                                          ('std_dev', ls_std)], 
+                                          orient='index', columns=summary_label)
     df_summary = df_summary.iloc[:, :14]
     df_summary = df_summary.round(2)
     result_each_cycle = result_each_cycle.round(2)
     result_each_cycle.set_index('cycle#', inplace=True)
-    
+
     return result_each_cycle, df_summary
 
 
@@ -271,7 +284,6 @@ def all_same(items):
 
 
 def df_keypoints(channel, df_chan_Ambient, upper_threshold, lower_threshold):
-
     lower = df_chan_Ambient[df_chan_Ambient[channel] < 0]
     upper = df_chan_Ambient[df_chan_Ambient[channel] >= 0]
 
@@ -332,11 +344,15 @@ def df_keypoints(channel, df_chan_Ambient, upper_threshold, lower_threshold):
 
 def drop_errors_channel(df, channel):
     ''' Get rid of outrage data and output error list '''
-    df_chan_orig = df[['Sweep #', 'Time', channel]].sort_values(['Sweep #']).reset_index(drop=True)
-    df_chan_selected = df[['Sweep #', 'Time', channel]].sort_values(['Sweep #']).reset_index(drop=True)
+    #df_chan_orig[['Sweep #']] = df_chan_orig.index.values.tolist()
+    df_chan_orig = df[['Sweep #', 'Time', channel]].reset_index(drop=True)
+    df_chan_orig[['Sweep #']] = df_chan_orig.index.values.tolist()
+    df_chan_selected = df[['Sweep #', 'Time', channel]].reset_index(drop=True)
+    df_chan_selected[['Sweep #']] = df_chan_selected.index.values.tolist()
 
     df_chan_selected = df_chan_selected[df_chan_selected[channel] < 150]
     df_chan_selected = df_chan_selected[df_chan_selected[channel] > -150]
 
     errors = df_chan_orig[~df_chan_orig.index.isin(df_chan_selected.index.tolist())]
+
     return df_chan_selected, errors
